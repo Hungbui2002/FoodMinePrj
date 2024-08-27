@@ -1,8 +1,10 @@
+import bcrypt from "bcryptjs";
 import { Router } from "express";
 import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
+import { HTTP_BAD_REQUEST } from "../constants/http_status";
 import { sample_users } from "../data";
-import { UserModel } from "../models/user.model";
+import { User, UserModel } from "../models/user.model";
 
 const router = Router();
 
@@ -24,30 +26,62 @@ router.post(
   "/login",
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-    const user = await UserModel.findOne({ email, password });
+    const user = await UserModel.findOne({ email });
 
-    if (user) {
-      res.send(generateTokenResponse(user));
+    if (user && (await bcrypt.compare(password, user.password))) {
+      res.send(generateTokenReponse(user));
     } else {
-      const BAD_REQUEST = 400;
-      res.status(BAD_REQUEST).send("User name or password is not valid");
+      res.status(HTTP_BAD_REQUEST).send("User name or password is not valid");
     }
   })
 );
 
-const generateTokenResponse = (user: any) => {
+router.post(
+  "/register",
+  asyncHandler(async (req, res) => {
+    const { name, email, password, address } = req.body;
+    const user = await UserModel.findOne({ email });
+    if (user) {
+      res.status(HTTP_BAD_REQUEST).send("User is already exist");
+      return;
+    }
+
+    const encryptedPassword = await bcrypt.hash(password, 10);
+    const newUser: User = {
+      id: "",
+      name,
+      email: email.toLowerCase(),
+      password: encryptedPassword,
+      address,
+      isAdmin: false,
+    };
+
+    const dbUser = await UserModel.create(newUser);
+    res.send(generateTokenReponse(dbUser));
+  })
+);
+
+const generateTokenReponse = (user: User) => {
   const token = jwt.sign(
     {
+      id: user.id,
       email: user.email,
       isAdmin: user.isAdmin,
     },
-    "SomeRandomText",
+    process.env.JWT_SECRET!,
     {
       expiresIn: "30d",
     }
   );
-  user.token = token;
-  return user;
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    address: user.address,
+    isAdmin: user.isAdmin,
+    token: token,
+  };
 };
 
 export default router;
